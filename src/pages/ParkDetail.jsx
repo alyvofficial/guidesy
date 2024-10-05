@@ -1,14 +1,17 @@
 import { useParams } from "react-router-dom";
-import { useState } from "react";
-import { MapContainer, TileLayer, Marker, Popup, Polygon } from "react-leaflet"; // Leaflet bileşenleri
-import "leaflet/dist/leaflet.css"; // Leaflet CSS
-import L from "leaflet"; // Özel ikonlar için Leaflet
-import animalicon from "../assets/Images/AnimalLoc.svg"; // Hayvan ikonu
-import restauranticon from "../assets/Images/RestoranLoc.svg"; // Restoran ikonu
-import velo from "../assets/Images/VeloLoc.svg"; // Velo
-import camping from "../assets/Images/campingLoc.svg"; // Camping
+import { useState, useEffect } from "react";
+import { MapContainer, TileLayer, Marker, Popup, Polygon, useMap } from "react-leaflet"; 
+import "leaflet/dist/leaflet.css"; 
+import L from "leaflet"; 
+import 'leaflet-routing-machine/dist/leaflet-routing-machine.css';
+import animalicon from "../assets/Images/AnimalLoc.svg"; 
+import restauranticon from "../assets/Images/RestoranLoc.svg"; 
+import velo from "../assets/Images/VeloLoc.svg"; 
+import camping from "../assets/Images/campingLoc.svg"; 
+import PropTypes from "prop-types";
+import "leaflet-routing-machine";
 
-// Özel ikonlar için resim URL'lerini ve boyutlarını ayarlıyoruz
+// Define custom icons
 const animalIcon = new L.Icon({
   iconUrl: animalicon,
   iconSize: [32, 32],
@@ -29,18 +32,16 @@ const veloIcon = new L.Icon({
   iconSize: [32, 32],
 });
 
-// Rastgele koordinat sapmaları oluşturmak için fonksiyon
+// Generate random offset for coordinates
 const getRandomOffset = () => (Math.random() - 0.5) * 0.01;
 
-// Parkların ve attraksiyonların bilgileri
+// Park and attraction data
 const parksData = {
   sahdag: {
     name: "Şahdağ Milli Parkı",
-    description:
-      "Dağlık bölgede yer alan, zengin flora ve faunaya sahip milli park.",
-    location: [41.2181, 48.0072], // Park merkezi
+    description: "Dağlık bölgede yer alan, zengin flora ve faunaya sahip milli park.",
+    location: [41.2181, 48.0072],
     area: [
-      // Park sınırlarını temsil eden çokgen koordinatları
       [41.25, 47.98],
       [41.23, 48.01],
       [41.2, 48.02],
@@ -53,10 +54,7 @@ const parksData = {
         icon: animalIcon,
         info: {
           description: "Hayvanların doğal ortamında gözlemlenmesi.",
-          reviews: [
-            { user: "Ali", comment: "Gözəl bir təcrübə!", rating: 5 },
-            { user: "Leyla", comment: "Çox maraqlı!", rating: 4 },
-          ],
+          reviews: [],
         },
       },
       {
@@ -65,11 +63,7 @@ const parksData = {
         icon: restaurantIcon,
         info: {
           description: "Təbiətdə yerli yeməklərin dadına baxın.",
-          menu: ["Qızardılmış Balıq", "Salat", "Çay"],
-          reviews: [
-            { user: "Elmar", comment: "Çox ləzzətli!", rating: 5 },
-            { user: "Sara", comment: "Hizmet biraz gecikdi.", rating: 3 },
-          ],
+          reviews: [],
         },
       },
       {
@@ -92,16 +86,94 @@ const parksData = {
       },
     ],
   },
-  // Diğer parkları eklemek istersen buraya ekleyebilirsin
+};
+
+const LocationMarker = ({ setUserLocation }) => {
+  const map = useMap();
+
+  useEffect(() => {
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          const userLocation = [
+            position.coords.latitude,
+            position.coords.longitude,
+          ];
+          setUserLocation(userLocation);
+        },
+        () => {}
+      );
+    }
+  }, [map, setUserLocation]);
+
+  return null;
+};
+
+LocationMarker.propTypes = {
+  setUserLocation: PropTypes.func.isRequired,
 };
 
 export const ParkDetail = () => {
   const { slug } = useParams();
   const park = parksData[slug];
   const [selectedAttraction, setSelectedAttraction] = useState(null);
+  const [userLocation, setUserLocation] = useState(null);
+  const [map, setMap] = useState(null);
+  const [routingControl, setRoutingControl] = useState(null);
+  const [transportMode, setTransportMode] = useState("DRIVING"); // Default to driving
 
   const handleMarkerClick = (attraction) => {
     setSelectedAttraction(attraction);
+  };
+
+  useEffect(() => {
+    if (map && selectedAttraction && userLocation) {
+      if (routingControl) {
+        map.removeControl(routingControl);
+      }
+
+      const newRoutingControl = L.Routing.control({
+        waypoints: [
+          L.latLng(userLocation[0], userLocation[1]),
+          L.latLng(selectedAttraction.location[0], selectedAttraction.location[1]),
+        ],
+        routeWhileDragging: true,
+        createMarker: () => null,
+        router: L.Routing.mapbox("YOUR_MAPBOX_ACCESS_TOKEN", {
+          profile: transportMode === "WALKING" ? "walking" : "driving",
+        }),
+      }).addTo(map);
+
+      setRoutingControl(newRoutingControl);
+
+      return () => {
+        map.removeControl(newRoutingControl);
+      };
+    }
+  }, [map, selectedAttraction, userLocation, routingControl, transportMode]);
+
+  const handleRouteChange = (mode) => {
+    setTransportMode(mode);
+    // If a route is already set, we need to recreate it with the new mode
+    if (selectedAttraction && userLocation) {
+      if (routingControl) {
+        map.removeControl(routingControl);
+      }
+
+      const newRoutingControl = L.Routing.control({
+        waypoints: [
+          L.latLng(userLocation[0], userLocation[1]),
+          L.latLng(selectedAttraction.location[0], selectedAttraction.location[1]),
+        ],
+        routeWhileDragging: true,
+        createMarker: () => null,
+        router: L.Routing.mapbox("YOUR_MAPBOX_ACCESS_TOKEN", {
+          profile: mode === "WALKING" ? "walking" : "driving",
+        }),
+      }).addTo(map);
+
+      setRoutingControl(newRoutingControl);
+    }
   };
 
   return (
@@ -109,8 +181,7 @@ export const ParkDetail = () => {
       <section className="max-w-6xl mx-auto p-6">
         <h1 className="text-3xl font-bold mb-4">{park.name}</h1>
         <p className="mb-4">{park.description}</p>
-        
-        {/* İkonların mənasını göstərən cədvəl */}
+
         <table className="min-w-full mb-4">
           <thead>
             <tr>
@@ -145,16 +216,18 @@ export const ParkDetail = () => {
               center={park.location}
               zoom={14}
               style={{ height: "800px", width: "100%" }}
+              whenCreated={setMap}
             >
               <TileLayer
                 url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
                 attribution='&copy; <a href="http://osm.org/copyright">OpenStreetMap</a> contributors'
               />
-
-              {/* Parkın sınırlarını çokgen olarak göstermek */}
               <Polygon positions={park.area} color="green" />
-
-              {/* Parka ait işaretçiler */}
+              {userLocation && (
+                <Marker position={userLocation} icon={new L.Icon({ iconUrl: velo, iconSize: [32, 32] })}>
+                  <Popup>Sizin konumunuz.</Popup>
+                </Marker>
+              )}
               {park.attractions.map((attraction, index) => (
                 <Marker
                   key={index}
@@ -169,34 +242,24 @@ export const ParkDetail = () => {
                   <Popup>{attraction.name}</Popup>
                 </Marker>
               ))}
+              <LocationMarker setUserLocation={setUserLocation} />
             </MapContainer>
           </div>
-          
-          {/* Seçilmiş attraksiyonun məlumatları */}
+
           {selectedAttraction && (
             <div className="mt-4 p-4 border rounded bg-gray-50">
               <h3 className="text-xl font-semibold">{selectedAttraction.name}</h3>
               <p className="mb-2">{selectedAttraction.info.description}</p>
-              
-              {selectedAttraction.info.menu && (
-                <div className="mb-2">
-                  <h4 className="font-semibold">Menyu:</h4>
-                  <ul>
-                    {selectedAttraction.info.menu.map((item, index) => (
-                      <li key={index} className="ml-4">{item}</li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-
-              {selectedAttraction.info.reviews && (
-                <div>
-                  <h4 className="font-semibold">Yorumlar:</h4>
-                  <ul>
-                    {selectedAttraction.info.reviews.map((review, index) => (
-                      <li key={index} className="ml-4">{review.user}: {review.comment} (Reytinq: {review.rating})</li>
-                    ))}
-                  </ul>
+              {userLocation && (
+                <div className="mt-4">
+                  <h4 className="font-semibold">Yönlendirme:</h4>
+                  <p>
+                    Hedef: {selectedAttraction.name}. 
+                    <br />
+                    Kullanıcı konumunuza {selectedAttraction.location[0].toFixed(4)}, {selectedAttraction.location[1].toFixed(4)} koordinatlarına gidin.
+                  </p>
+                  <button onClick={() => handleRouteChange("DRIVING")}>Araba ile Git</button>
+                  <button onClick={() => handleRouteChange("WALKING")}>Yaya Olarak Git</button>
                 </div>
               )}
             </div>
